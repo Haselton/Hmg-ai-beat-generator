@@ -1,9 +1,7 @@
 package com.haselton.hmgaibeatgenerator
 
 import android.content.ContentValues
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
+import android.media.*
 import android.os.Bundle
 import android.provider.MediaStore
 import android.widget.*
@@ -13,58 +11,45 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.concurrent.thread
 import kotlin.math.*
-import kotlin.random.Random
 
-class MainActivity : AppCompatActivity() {
-    private var track: AudioTrack? = null
-    private var pcm: ShortArray? = null
-    private var lastPrompt = "beat"
-    private var bcSnare: ShortArray? = null
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        bcSnare = loadRaw(R.raw.battlecat_snare_tight)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(42,55,42,30); setBackgroundColor(0xff090b10.toInt()) }
-        fun txt(s:String,z:Float)=TextView(this).apply{text=s;textSize=z;setTextColor(0xfff2f4f8.toInt());setPadding(0,9,0,9)}
-        root.addView(txt("HMG // AI BEAT GENERATOR",25f)); root.addView(txt("Prompt-driven instrumentals • BattleCat kit",14f))
-        val prompt=EditText(this).apply{hint="dark Detroit horrorcore, slow heavy drums, ominous bells, aggressive 808, sparse melody";setTextColor(0xffffffff.toInt());setHintTextColor(0xff737985.toInt());minLines=4};root.addView(prompt)
-        val bpmLabel=txt("BPM 88",16f);root.addView(bpmLabel);val bpm=SeekBar(this).apply{max=100;progress=28};root.addView(bpm)
-        bpm.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{override fun onProgressChanged(s:SeekBar?,p:Int,f:Boolean){bpmLabel.text="BPM ${60+p}"};override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){}})
-        val status=txt("Ready • v0.3",14f);root.addView(status);val gen=Button(this).apply{text="GENERATE FROM PROMPT"};root.addView(gen);val play=Button(this).apply{text="PLAY / STOP";isEnabled=false};root.addView(play);val save=Button(this).apply{text="DOWNLOAD WAV";isEnabled=false};root.addView(save);setContentView(root)
-        gen.setOnClickListener{val p=prompt.text.toString().ifBlank{"grimy boom bap"};lastPrompt=p;status.text="Composing...";gen.isEnabled=false;thread{val a=BeatEngine.render(60+bpm.progress,p,bcSnare);runOnUiThread{pcm=a;status.text="Generated • ${a.size/88200}s • ${BeatEngine.describe(p)}";play.isEnabled=true;save.isEnabled=true;gen.isEnabled=true}}}
-        play.setOnClickListener{if(track?.playState==AudioTrack.PLAYSTATE_PLAYING){track?.stop();track?.release();track=null}else pcm?.let{playPcm(it)}}
-        save.setOnClickListener{pcm?.let{val n="HMG_${lastPrompt.replace(Regex("[^A-Za-z0-9]+"),"_").take(22)}_${System.currentTimeMillis()}.wav";try{saveWav(n,it);status.text="Saved • Music/HMG Beat Generator/$n"}catch(e:Exception){status.text="Save failed: ${e.message}"}}}
-    }
-    private fun loadRaw(id:Int):ShortArray?=try{val bytes=resources.openRawResource(id).readBytes();val bb=ByteBuffer.wrap(bytes,44,bytes.size-44).order(ByteOrder.LITTLE_ENDIAN);ShortArray((bytes.size-44)/2){bb.short}}catch(e:Exception){null}
-    private fun playPcm(d:ShortArray){track=AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()).setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(44100).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build()).setBufferSizeInBytes(d.size*2).setTransferMode(AudioTrack.MODE_STATIC).build();track!!.write(d,0,d.size);track!!.play()}
-    private fun saveWav(n:String,d:ShortArray){val v=ContentValues().apply{put(MediaStore.Audio.Media.DISPLAY_NAME,n);put(MediaStore.Audio.Media.MIME_TYPE,"audio/wav");put(MediaStore.Audio.Media.RELATIVE_PATH,"Music/HMG Beat Generator")};val u=contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,v)?:error("create failed");contentResolver.openOutputStream(u)!!.use{Wav.write(it,d)}}
+class MainActivity:AppCompatActivity(){
+ private var track:AudioTrack?=null;private var pcm:ShortArray?=null;private var promptName="beat";private var snare:ShortArray?=null;private var kick:ShortArray?=null
+ override fun onCreate(b:Bundle?){super.onCreate(b);snare=raw(R.raw.battlecat_snare_tight);kick=raw(R.raw.battlecat_kick_dirty)
+  val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(38,50,38,25);setBackgroundColor(0xff090b10.toInt())};fun t(x:String,z:Float)=TextView(this).apply{text=x;textSize=z;setTextColor(0xfff4f4f4.toInt());setPadding(0,8,0,8)}
+  root.addView(t("HMG // COMPOSER",26f));root.addView(t("Phrase-based instrumental generator • v0.4",14f));val p=EditText(this).apply{hint="dark 90s west coast, sinister minor piano, funky bass, hard drums, dramatic hook";minLines=4;setTextColor(0xffffffff.toInt());setHintTextColor(0xff777b85.toInt())};root.addView(p)
+  val bl=t("BPM 88",16f);root.addView(bl);val bpm=SeekBar(this).apply{max=100;progress=28};root.addView(bpm);bpm.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{override fun onProgressChanged(s:SeekBar?,v:Int,f:Boolean){bl.text="BPM ${60+v}"};override fun onStartTrackingTouch(s:SeekBar?){};override fun onStopTrackingTouch(s:SeekBar?){}})
+  val status=t("Ready",13f);root.addView(status);val gen=Button(this).apply{text="COMPOSE BEAT"};val play=Button(this).apply{text="PLAY / STOP";isEnabled=false};val save=Button(this).apply{text="DOWNLOAD WAV";isEnabled=false};root.addView(gen);root.addView(play);root.addView(save);setContentView(root)
+  gen.setOnClickListener{val q=p.text.toString().ifBlank{"dark boom bap minor piano"};promptName=q;gen.isEnabled=false;status.text="Writing harmony, motif, bassline & arrangement...";thread{val a=Composer.render(60+bpm.progress,q,kick,snare);runOnUiThread{pcm=a;status.text="Composed • ${Composer.summary(q)}";gen.isEnabled=true;play.isEnabled=true;save.isEnabled=true}}}
+  play.setOnClickListener{if(track?.playState==AudioTrack.PLAYSTATE_PLAYING){track?.stop();track?.release();track=null}else pcm?.let{d->track=AudioTrack.Builder().setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()).setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(44100).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build()).setBufferSizeInBytes(d.size*2).setTransferMode(AudioTrack.MODE_STATIC).build();track!!.write(d,0,d.size);track!!.play()}}
+  save.setOnClickListener{pcm?.let{d->val n="HMG_${promptName.replace(Regex("[^A-Za-z0-9]+"),"_").take(20)}.wav";val v=ContentValues().apply{put(MediaStore.Audio.Media.DISPLAY_NAME,n);put(MediaStore.Audio.Media.MIME_TYPE,"audio/wav");put(MediaStore.Audio.Media.RELATIVE_PATH,"Music/HMG Beat Generator")};contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,v)?.let{u->contentResolver.openOutputStream(u)!!.use{Wav.write(it,d)};status.text="Saved • Music/HMG Beat Generator/$n"}}}
+ }
+ private fun raw(id:Int)=try{val a=resources.openRawResource(id).readBytes();val b=ByteBuffer.wrap(a,44,a.size-44).order(ByteOrder.LITTLE_ENDIAN);ShortArray((a.size-44)/2){b.short}}catch(e:Exception){null}
 }
 
-data class Style(val trap:Boolean,val boom:Boolean,val west:Boolean,val dark:Boolean,val hard:Boolean,val sparse:Boolean,val busy:Boolean,val swing:Double,val minor:Boolean,val voice:String,val bass:String)
-
-object BeatEngine {
-    const val SR=44100
-    fun style(p:String):Style {
-        val s=p.lowercase()
-        fun h(vararg words:String)=words.any { s.contains(it) }
-        val voice=when { h("bell","chime")->"bell"; h("organ")->"organ"; h("string","orchestral")->"strings"; h("synth","g-funk")->"synth"; h("dark","horror")->"bell"; else->"keys" }
-        val bass=if(h("808","trap","drill")) "808" else if(h("funk","west coast")) "funk" else "sub"
-        return Style(h("trap","drill"),h("boom bap","boombap","90s","grimy"),h("west coast","g-funk","funk"),h("dark","horror","ominous","sinister","creepy"),h("hard","aggressive","heavy","hardcore"),h("sparse","minimal","simple"),h("busy","complex","fast hats"),if(h("swing","boom bap","grimy")) .13 else 0.0,!h("happy","bright","major"),voice,bass)
-    }
-    fun describe(p:String):String { val s=style(p); return listOf(if(s.trap)"trap" else if(s.boom)"boom-bap" else if(s.west)"west-coast" else "hip-hop",if(s.minor)"minor" else "major",s.voice,s.bass,"BattleCat snare").joinToString(" / ") }
-    fun render(bpm:Int,prompt:String,snareSample:ShortArray?):ShortArray {
-        val st=style(prompt); val bars=20; val beat=60.0/bpm; val step=beat/4; val frames=(bars*4*beat*SR).toInt(); val l=DoubleArray(frames); val r=DoubleArray(frames); val rnd=Random(prompt.hashCode()+System.nanoTime().toInt())
-        for(bar in 0 until bars){val energy=if(bar<2).45 else if((bar/4)%3==2)1.0 else .78;for(pos in 0..15){var t=bar*4*beat+pos*step;if(pos%2==1)t+=step*st.swing;val kp=when{st.trap->pos in intArrayOf(0,3,7,10,14);st.boom->pos in intArrayOf(0,6,9,14);st.west->pos in intArrayOf(0,7,10);else->pos in intArrayOf(0,8,11)};if(kp&&(!st.sparse||rnd.nextDouble()>.25))kick(l,r,t,(if(st.hard)1.05 else .82)*energy);val sp=if(st.trap) pos==8 else pos==4||pos==12;if(sp){if(snareSample!=null)sample(l,r,t,snareSample,.68*energy)else snare(l,r,t,.52*energy)};val hs=if(st.busy||st.trap)1 else 2;if(pos%hs==0&&!(st.sparse&&pos%4!=0))hat(l,r,t,.12*energy,rnd.nextDouble(-.35,.35))}}
-        val scale=if(st.minor)intArrayOf(0,3,5,7,10,12) else intArrayOf(0,4,5,7,9,12);val root=if(st.dark)46.25 else if(st.west)55.0 else 49.0
-        for(bar in 0 until bars){val hook=(bar/4)%3==2;for(b in 0..3){if(!st.sparse||b==0||hook){val deg=scale[(bar+b)%4];bass(l,r,(bar*4+b)*beat,root*2.0.pow(deg/12.0),if(st.bass=="808")beat*.9 else beat*.55,if(st.hard).48 else .34)}};if(bar>=2){val count=if(st.sparse)2 else if(hook)6 else 4;for(n in 0 until count){val pos=(n*4+(bar+n)%3)%16;val deg=scale[(n+bar)%scale.size];tone(l,r,bar*4*beat+pos*step,root*4*2.0.pow(deg/12.0),step*(if(st.voice=="strings")5 else 2),if(hook).15 else .10,st.voice,(n%3-1)*.38)}}}
-        val peak=max(l.maxOf{abs(it)},r.maxOf{abs(it)}).coerceAtLeast(.1);val out=ShortArray(frames*2);for(i in 0 until frames){out[i*2]=(tanh(l[i]/peak*2.0)*29500).toInt().toShort();out[i*2+1]=(tanh(r[i]/peak*2.0)*29500).toInt().toShort()};return out
-    }
-    private fun add(l:DoubleArray,r:DoubleArray,i:Int,v:Double,p:Double){if(i !in l.indices)return;l[i]+=v*(1-p)*.5;r[i]+=v*(1+p)*.5}
-    private fun sample(l:DoubleArray,r:DoubleArray,t:Double,s:ShortArray,g:Double){val start=(t*SR).toInt();var j=0;var i=start;while(j+1<s.size&&i<l.size){l[i]+=s[j]/32768.0*g;r[i]+=s[j+1]/32768.0*g;j+=2;i++}}
-    private fun kick(l:DoubleArray,r:DoubleArray,t:Double,g:Double){val st=(t*SR).toInt();for(i in 0 until (.38*SR).toInt()){val x=i.toDouble()/SR;add(l,r,st+i,sin(2*PI*(150*exp(-x*20)+42)*x)*exp(-x*13)*g,0.0)}}
-    private fun snare(l:DoubleArray,r:DoubleArray,t:Double,g:Double){val st=(t*SR).toInt();val q=Random(st);for(i in 0 until (.18*SR).toInt()){val x=i.toDouble()/SR;add(l,r,st+i,(q.nextDouble()*2-1)*exp(-x*22)*g,0.0)}}
-    private fun hat(l:DoubleArray,r:DoubleArray,t:Double,g:Double,p:Double){val st=(t*SR).toInt();val q=Random(st+3);for(i in 0 until (.055*SR).toInt()){val x=i.toDouble()/SR;add(l,r,st+i,(q.nextDouble()*2-1)*exp(-x*85)*g,p)}}
-    private fun bass(l:DoubleArray,r:DoubleArray,t:Double,f:Double,d:Double,g:Double){val st=(t*SR).toInt();for(i in 0 until (d*SR).toInt()){val x=i.toDouble()/SR;add(l,r,st+i,(sin(2*PI*f*x)+.2*sin(4*PI*f*x))*exp(-x*2.6)*g,0.0)}}
-    private fun tone(l:DoubleArray,r:DoubleArray,t:Double,f:Double,d:Double,g:Double,type:String,p:Double){val st=(t*SR).toInt();for(i in 0 until (d*SR).toInt()){val x=i.toDouble()/SR;val env=(1-exp(-x*35))*exp(-x*(if(type=="strings")1.3 else 4.0));val v=when(type){"bell"->sin(2*PI*f*x)+.42*sin(2*PI*f*2.01*x)+.2*sin(2*PI*f*3.9*x);"organ"->sin(2*PI*f*x)+.35*sin(4*PI*f*x);"synth"->sin(2*PI*f*x)+.25*sin(6*PI*f*x);"strings"->sin(2*PI*f*x)+.3*sin(2*PI*f*1.005*x);else->sin(2*PI*f*x)+.18*sin(4*PI*f*x)};add(l,r,st+i,v*env*g,p)}}
+data class Plan(val west:Boolean,val trap:Boolean,val boom:Boolean,val dark:Boolean,val sparse:Boolean,val dramatic:Boolean,val instrument:String,val progression:IntArray,val scale:IntArray,val root:Double,val motif:IntArray)
+object Composer{
+ const val SR=44100
+ fun plan(p:String):Plan{val s=p.lowercase();fun h(vararg w:String)=w.any{s.contains(it)};val west=h("west coast","g-funk","funk");val trap=h("trap","drill");val boom=h("boom bap","boombap","90s","grimy");val dark=h("dark","sinister","ominous","horror","creepy");val minor=!h("happy","bright","major");val scale=if(minor)intArrayOf(0,3,5,7,10,12) else intArrayOf(0,2,4,7,9,12);val prog=when{dark->intArrayOf(0,5,3,7);west->intArrayOf(0,7,5,3);else->intArrayOf(0,5,7,3)};val inst=when{h("piano","keys")->"piano";h("bell","chime")->"bell";h("organ")->"organ";h("string","orchestral")->"strings";h("synth","g-funk")->"synth";else->if(dark)"bell" else "piano"};val motif=if(h("sparse","minimal"))intArrayOf(0,-1,2,-1,1,-1,3,-1) else if(west)intArrayOf(0,2,3,2,4,3,2,1) else intArrayOf(0,2,1,3,2,4,3,1);return Plan(west,trap,boom,dark,h("sparse","minimal"),h("dramatic","huge","big hook"),inst,prog,scale,if(dark)46.25 else if(west)55.0 else 49.0,motif)}
+ fun summary(p:String):String{val x=plan(p);return "${if(x.west)"West Coast" else if(x.trap)"Trap" else if(x.boom)"Boom-bap" else "Hip-hop"} • ${x.instrument} • structured hook"}
+ fun render(bpm:Int,prompt:String,kickS:ShortArray?,snareS:ShortArray?):ShortArray{val x=plan(prompt);val beat=60.0/bpm;val step=beat/4;val bars=32;val frames=(bars*4*beat*SR).toInt();val l=DoubleArray(frames);val r=DoubleArray(frames)
+  for(bar in 0 until bars){val sec=section(bar);val hook=sec==2||sec==4;val active=sec!=0||bar>=2;val chord=x.progression[(bar/2)%x.progression.size];val chordRoot=x.root*2.0.pow(chord/12.0)
+   if(active)drums(l,r,bar,beat,step,x,hook,kickS,snareS)
+   if(sec!=0||bar>=1){chord(l,r,bar*4*beat,chordRoot,beat*3.7,x.instrument,if(hook).15 else .10);bassPhrase(l,r,bar,beat,chordRoot,x,hook)}
+   if(bar>=2){melodyPhrase(l,r,bar,beat,step,chordRoot,x,hook);if(hook&&x.dramatic)counter(l,r,bar,beat,chordRoot,x)}
+  }
+  val pk=max(l.maxOf{abs(it)},r.maxOf{abs(it)}).coerceAtLeast(.1);val out=ShortArray(frames*2);for(i in 0 until frames){out[i*2]=(tanh(l[i]/pk*2.2)*30000).toInt().toShort();out[i*2+1]=(tanh(r[i]/pk*2.2)*30000).toInt().toShort()};return out}
+ private fun section(b:Int)=when(b){in 0..3->0;in 4..11->1;in 12..15->2;in 16..23->3;in 24..27->4;else->5}
+ private fun drums(l:DoubleArray,r:DoubleArray,bar:Int,beat:Double,step:Double,x:Plan,hook:Boolean,k:ShortArray?,s:ShortArray?){val kp=when{ x.trap->intArrayOf(0,3,7,10,14);x.west->intArrayOf(0,6,10,14);x.boom->intArrayOf(0,6,9,14);else->intArrayOf(0,7,11,14)};for(pos in 0..15){val t=bar*4*beat+pos*step+(if(x.boom&&pos%2==1)step*.12 else 0.0);if(pos in kp&&(hook||pos!=14||bar%2==1)){if(k!=null)sample(l,r,t,k,.72)else kick(l,r,t,.8)};val sn=if(x.trap)pos==8 else pos==4||pos==12;if(sn){if(s!=null)sample(l,r,t,s,.65)else noise(l,r,t,.45)};val hs=if(x.trap||hook)2 else 4;if(pos%hs==0)hat(l,r,t,.10,if(pos%4==0)-.2 else .2)};if(bar%4==3&&hook){noise(l,r,bar*4*beat+15*step,.22)}}
+ private fun bassPhrase(l:DoubleArray,r:DoubleArray,bar:Int,beat:Double,f:Double,x:Plan,hook:Boolean){val rhythm=if(x.west)doubleArrayOf(0.0,.75,1.5,2.75,3.25) else if(x.trap)doubleArrayOf(0.0,1.5,2.0,3.25) else doubleArrayOf(0.0,1.0,2.5,3.0);for((j,b) in rhythm.withIndex()){val ff=if(j==rhythm.lastIndex&&bar%2==1)f*2.0.pow(7.0/12) else f/2; bass(l,r,(bar*4+b)*beat,ff,beat*(if(x.trap).7 else .42),if(hook).38 else .29)}}
+ private fun melodyPhrase(l:DoubleArray,r:DoubleArray,bar:Int,beat:Double,step:Double,f:Double,x:Plan,hook:Boolean){for(i in x.motif.indices){val degree=x.motif[i];if(degree<0)continue;if(!hook&&x.sparse&&i%2==1)continue;val sem=x.scale[degree%x.scale.size];val octave=if(hook&&i>=4)2.0 else 1.0;val note=f*4*octave*2.0.pow(sem/12.0);tone(l,r,bar*4*beat+i*step*2,note,step*(if(x.instrument=="strings")5 else 1.7),if(hook).12 else .075,x.instrument,if(i%2==0)-.32 else .32)}}
+ private fun counter(l:DoubleArray,r:DoubleArray,bar:Int,beat:Double,f:Double,x:Plan){for(i in 0..3){val sem=x.scale[(4-i)%x.scale.size];tone(l,r,(bar*4+i+.5)*beat,f*8*2.0.pow(sem/12.0),beat*.35,.055,"synth",if(i%2==0).55 else -.55)}}
+ private fun chord(l:DoubleArray,r:DoubleArray,t:Double,f:Double,d:Double,type:String,g:Double){for(semi in intArrayOf(0,3,7)){tone(l,r,t,f*4*2.0.pow(semi/12.0),d,g/3,type,(semi-3)*.08)}}
+ private fun add(l:DoubleArray,r:DoubleArray,i:Int,v:Double,p:Double){if(i !in l.indices)return;l[i]+=v*(1-p)*.5;r[i]+=v*(1+p)*.5}
+ private fun sample(l:DoubleArray,r:DoubleArray,t:Double,s:ShortArray,g:Double){var j=0;var i=(t*SR).toInt();while(j+1<s.size&&i<l.size){l[i]+=s[j]/32768.0*g;r[i]+=s[j+1]/32768.0*g;j+=2;i++}}
+ private fun kick(l:DoubleArray,r:DoubleArray,t:Double,g:Double){val st=(t*SR).toInt();for(i in 0 until (.35*SR).toInt()){val q=i.toDouble()/SR;add(l,r,st+i,sin(2*PI*(140*exp(-q*18)+44)*q)*exp(-q*12)*g,0.0)}}
+ private fun noise(l:DoubleArray,r:DoubleArray,t:Double,g:Double){val st=(t*SR).toInt();var seed=st;for(i in 0 until (.13*SR).toInt()){seed=seed*1664525+1013904223;val v=((seed ushr 16 and 65535)/32768.0-1)*exp(-i.toDouble()/SR*28)*g;add(l,r,st+i,v,0.0)}}
+ private fun hat(l:DoubleArray,r:DoubleArray,t:Double,g:Double,p:Double){val st=(t*SR).toInt();var seed=st+9;for(i in 0 until (.045*SR).toInt()){seed=seed*1103515245+12345;val v=((seed ushr 16 and 65535)/32768.0-1)*exp(-i.toDouble()/SR*95)*g;add(l,r,st+i,v,p)}}
+ private fun bass(l:DoubleArray,r:DoubleArray,t:Double,f:Double,d:Double,g:Double){val st=(t*SR).toInt();for(i in 0 until (d*SR).toInt()){val q=i.toDouble()/SR;add(l,r,st+i,(sin(2*PI*f*q)+.18*sin(4*PI*f*q))*exp(-q*2.2)*g,0.0)}}
+ private fun tone(l:DoubleArray,r:DoubleArray,t:Double,f:Double,d:Double,g:Double,type:String,p:Double){val st=(t*SR).toInt();for(i in 0 until (d*SR).toInt()){val q=i.toDouble()/SR;val e=(1-exp(-q*30))*exp(-q*(if(type=="strings")1.1 else 3.8));val v=when(type){"bell"->sin(2*PI*f*q)+.35*sin(2*PI*f*2.01*q)+.15*sin(2*PI*f*3.98*q);"organ"->sin(2*PI*f*q)+.3*sin(4*PI*f*q);"synth"->sin(2*PI*f*q)+.22*sin(6*PI*f*q);"strings"->sin(2*PI*f*q)+.25*sin(2*PI*f*1.006*q);else->sin(2*PI*f*q)+.12*sin(4*PI*f*q)};add(l,r,st+i,v*e*g,p)}}
 }
-object Wav{fun write(o:OutputStream,d:ShortArray){val bytes=d.size*2;fun le(v:Int,n:Int){repeat(n){o.write(v shr (8*it) and 255)}};o.write("RIFF".toByteArray());le(36+bytes,4);o.write("WAVEfmt ".toByteArray());le(16,4);le(1,2);le(2,2);le(44100,4);le(176400,4);le(4,2);le(16,2);o.write("data".toByteArray());le(bytes,4);for(x in d){val v=x.toInt();o.write(v and 255);o.write(v shr 8 and 255)}}}
+object Wav{fun write(o:OutputStream,d:ShortArray){val n=d.size*2;fun le(v:Int,c:Int){repeat(c){o.write(v shr(8*it) and 255)}};o.write("RIFF".toByteArray());le(36+n,4);o.write("WAVEfmt ".toByteArray());le(16,4);le(1,2);le(2,2);le(44100,4);le(176400,4);le(4,2);le(16,2);o.write("data".toByteArray());le(n,4);for(x in d){val v=x.toInt();o.write(v and 255);o.write(v shr 8 and 255)}}}
